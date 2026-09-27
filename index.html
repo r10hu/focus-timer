@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Focus Timer</title>
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1c1b2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#1c1b2e; --frame:#12111d; --panel:#26243d;
+    --track:#3a3856; --grid:#28273f;
+    --ember:#e8a14c; --ember-dim:#5a4222;
+    --flow:#7fbf8f; --flow-dim:#2c4232;
+    --ink:#f2ecd8; --ink-dim:#8b87a8;
+    padding-top: env(safe-area-inset-top,0px);
+    padding-bottom: env(safe-area-inset-bottom,0px);
+  }
+  body[data-theme="black"]{
+    --bg:#000000; --frame:#050505; --panel:#000000;
+    --track:#121212; --grid:#000000;
+    --ember:#e8a14c; --ember-dim:#241a0d;
+    --flow:#7fbf8f; --flow-dim:#0d1a12;
+    --ink:#ffffff; --ink-dim:#4a4a4a;
+  }
+  body[data-theme="black"]::before{ opacity:.15; }
+  body[data-theme="black"] .scene-picker,
+  body[data-theme="black"] #bgCanvas{ display:none; }
+  *{box-sizing:border-box;}
+  html,body{height:100%; overflow-y:auto;}
+  body{
+    margin:0; min-height:100%; background:var(--bg); color:var(--ink);
+    font-family:'VT323',monospace; font-size:20px;
+    display:flex; align-items:center; justify-content:center;
+    position:relative; overflow-x:hidden;
+    image-rendering:pixelated;
+  }
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:5;
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 2px, transparent 2px 4px);
+    mix-blend-mode:multiply; opacity:.5;
+  }
+  .app{
+    width:100%; max-width:400px; padding:28px 18px 36px;
+    display:flex; flex-direction:column; align-items:center; gap:22px;
+    position:relative; z-index:2;
+  }
+  .title{
+    font-family:'Press Start 2P',monospace; font-size:12px; letter-spacing:2px;
+    color:var(--ink-dim);
+  }
+
+  .mode-switch{
+    display:flex; gap:0; width:100%; max-width:300px;
+    border:4px solid var(--frame); background:var(--panel);
+  }
+  .mode-switch button{
+    flex:1; border:none; background:transparent; color:var(--ink-dim);
+    font-family:'VT323',monospace; font-size:18px; letter-spacing:.5px;
+    padding:10px 8px; cursor:pointer;
+  }
+  .mode-switch button + button{ border-left:4px solid var(--frame); }
+  .mode-switch button.active{ background:var(--ember-dim); color:var(--ember); }
+  .mode-switch button.active.flow-active{ background:var(--flow-dim); color:var(--flow); }
+
+  .sub{ color:var(--ink-dim); font-size:16px; text-align:center; min-height:20px; }
+
+  .pie-frame{
+    position:relative; width:250px; height:250px;
+    background:var(--frame); padding:10px;
+    clip-path:polygon(16px 0,calc(100% - 16px) 0,100% 16px,100% calc(100% - 16px),calc(100% - 16px) 100%,16px 100%,0 calc(100% - 16px),0 16px);
+  }
+  .pie-inner{
+    width:100%; height:100%; border-radius:50%; background:var(--track);
+    display:flex; align-items:center; justify-content:center; position:relative;
+  }
+  .pie-slice{
+    position:absolute; inset:0; border-radius:50%;
+    background:conic-gradient(var(--ember) 0deg 360deg, var(--track) 360deg 360deg);
+    transition:background .2s linear;
+  }
+  .pie-center{
+    position:relative; width:180px; height:180px; border-radius:50%;
+    background:var(--frame); display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:6px; z-index:2;
+  }
+  .time{ font-family:'Press Start 2P',monospace; font-size:26px; color:var(--ink); letter-spacing:1px; }
+  .phase{ font-size:16px; color:var(--ink-dim); }
+
+  .controls{ display:flex; gap:12px; align-items:center; }
+  .btn{
+    font-family:'VT323',monospace; font-size:18px; letter-spacing:.5px;
+    border:4px solid var(--frame); cursor:pointer;
+    padding:12px 26px; background:var(--ember); color:#1c1206;
+    box-shadow:4px 4px 0 var(--frame);
+    transition:transform .08s ease, box-shadow .08s ease;
+  }
+  .btn.flow-active{ background:var(--flow); color:#0e1f14; }
+  .btn:active{ transform:translate(3px,3px); box-shadow:1px 1px 0 var(--frame); }
+  .btn.secondary{ background:var(--panel); color:var(--ink-dim); }
+  .btn.secondary:hover{ color:var(--ink); }
+
+  .dots{ display:flex; gap:8px; }
+  .dot{ width:10px; height:10px; background:var(--track); }
+  .dot.filled{ background:var(--ember); }
+  .dot.filled.flow-active{ background:var(--flow); }
+
+  .flow-config{ display:flex; align-items:center; gap:10px; color:var(--ink-dim); font-size:16px; }
+  .flow-config select{
+    font-family:'VT323',monospace; font-size:16px; background:var(--panel); color:var(--ink);
+    border:3px solid var(--frame); padding:4px 8px;
+  }
+
+  .sound-toggle{
+    position:absolute; top:14px; right:14px; z-index:3;
+    border:3px solid var(--frame); background:var(--panel); color:var(--ink-dim);
+    font-family:'VT323',monospace; font-size:16px; padding:6px 10px; cursor:pointer;
+  }
+  .sound-toggle.on{ color:var(--ember); }
+
+  .auto-toggle{
+    position:absolute; top:14px; left:14px; z-index:3;
+    border:3px solid var(--frame); background:var(--panel); color:var(--ink-dim);
+    font-family:'VT323',monospace; font-size:16px; padding:6px 10px; cursor:pointer;
+  }
+  .auto-toggle.on{ color:var(--flow); }
+
+  .fullscreen-toggle{
+    position:absolute; top:56px; left:14px; z-index:3;
+    border:3px solid var(--frame); background:var(--panel); color:var(--ink-dim);
+    font-family:'VT323',monospace; font-size:16px; padding:6px 10px; cursor:pointer;
+  }
+  .fullscreen-toggle:hover{ color:var(--ink); }
+
+  #bgCanvas{ position:fixed; inset:0; z-index:0; }
+
+  .scene-picker{
+    display:flex; gap:8px; z-index:2; position:relative;
+  }
+  .scene-btn{
+    width:34px; height:34px; border:3px solid var(--frame); background:var(--panel);
+    cursor:pointer; font-size:15px; color:var(--ink-dim); display:flex;
+    align-items:center; justify-content:center; padding:0;
+  }
+  .scene-btn.active{ background:var(--ember-dim); color:var(--ember); border-color:var(--ember); }
+
+  .theme-picker{ display:flex; gap:8px; z-index:2; position:relative; }
+  .theme-btn{
+    border:3px solid var(--frame); background:var(--panel); color:var(--ink-dim);
+    font-family:'VT323',monospace; font-size:14px; padding:5px 12px; cursor:pointer;
+  }
+  .theme-btn.active{ color:var(--ink); border-color:var(--ink-dim); }
+
+  body.zen .title, body.zen .theme-picker, body.zen .mode-switch,
+  body.zen .scene-picker, body.zen .sub, body.zen .dots,
+  body.zen .flow-config, body.zen #resetBtn,
+  body.zen .sound-toggle, body.zen .auto-toggle, body.zen .fullscreen-toggle{ display:none !important; }
+  body.zen .app{ flex-direction:row; flex-wrap:wrap; gap:44px; justify-content:center; align-items:center; }
+  body.zen .controls{ justify-content:center; }
+  body.zen .btn{ padding:18px 38px; font-size:20px; }
+
+  @media (max-height: 520px) and (orientation: landscape){
+    .app{ gap:6px; padding:8px 18px 10px; }
+    .title{ font-size:9px; }
+    .mode-switch button{ font-size:14px; padding:6px 6px; }
+    .theme-picker, .scene-picker{ gap:6px; }
+    .theme-btn{ font-size:11px; padding:3px 8px; }
+    .scene-btn{ width:26px; height:26px; font-size:12px; }
+    .pie-frame{ width:118px; height:118px; padding:7px; }
+    .pie-center{ width:82px; height:82px; }
+    .time{ font-size:14px; }
+    .phase{ font-size:10px; }
+    .sub{ font-size:11px; min-height:0; }
+    .btn{ padding:7px 16px; font-size:13px; }
+    .dots{ gap:5px; }
+    .dot{ width:7px; height:7px; }
+    .flow-config{ font-size:11px; gap:6px; }
+
+    /* zen has far fewer elements on screen, so give it real room */
+    body.zen .app{ gap:70px; }
+    body.zen .pie-frame{ width:210px; height:210px; padding:10px; }
+    body.zen .pie-center{ width:150px; height:150px; }
+    body.zen .time{ font-size:26px; }
+    body.zen .phase{ font-size:15px; }
+    body.zen .btn{ padding:18px 36px; font-size:20px; }
+  }
+
+  .hidden{ display:none !important; }
+</style>
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+<button class="sound-toggle on" id="soundToggle">♪ sound: on</button>
+<button class="auto-toggle on" id="autoToggle">⟳ auto: on</button>
+<button class="fullscreen-toggle" id="fsToggle">⛶ fullscreen</button>
+<div class="app">
+  <div class="title">FOCUS TIMER</div>
+
+  <div class="theme-picker" id="themePicker">
+    <button class="theme-btn active" data-theme="pixel">Pixel</button>
+    <button class="theme-btn" data-theme="black">Black</button>
+  </div>
+
+  <div class="scene-picker" id="scenePicker">
+    <button class="scene-btn active" data-scene="rain" title="Rain">☔</button>
+    <button class="scene-btn" data-scene="snow" title="Snow">❄</button>
+    <button class="scene-btn" data-scene="stars" title="Stars">✦</button>
+    <button class="scene-btn" data-scene="embers" title="Fireflies">✷</button>
+  </div>
+
+  <div class="mode-switch" id="modeSwitch">
+    <button id="btnPomodoro" class="active">Pomodoro</button>
+    <button id="btnFlow">Flowmodoro</button>
+  </div>
+
+  <div class="pie-frame">
+    <div class="pie-inner">
+      <div class="pie-slice" id="pieSlice"></div>
+      <div class="pie-center">
+        <div class="time" id="timeDisplay">50:00</div>
+        <div class="phase" id="phaseLabel">ready</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sub" id="subLabel">4 sessions before a long break</div>
+
+  <div class="controls">
+    <button class="btn secondary" id="resetBtn">Reset</button>
+    <button class="btn" id="startBtn">Start</button>
+  </div>
+
+  <div class="dots" id="dots"></div>
+
+  <div class="flow-config hidden" id="flowConfig">
+    <span>break ratio</span>
+    <select id="ratioSelect">
+      <option value="5">1 : 5</option>
+      <option value="4">1 : 4</option>
+      <option value="3">1 : 3</option>
+    </select>
+  </div>
+</div>
+
+<script>
+(function(){
+  const WORK_MIN = 50, SHORT_BREAK_MIN = 10, LONG_BREAK_MIN = 20, SESSIONS_BEFORE_LONG = 4;
+
+  let mode = 'pomodoro';
+  let phase = 'work';
+  let running = false;
+  let interval = null;
+  let soundOn = true;
+  let autoContinue = true;
+
+  let secondsLeft = WORK_MIN * 60;
+  let totalSeconds = WORK_MIN * 60;
+  let sessionCount = 0;
+
+  let flowElapsed = 0;
+  let flowBreakLeft = 0;
+  let flowBreakTotal = 0;
+  let flowRatio = 5;
+
+  const timeDisplay = document.getElementById('timeDisplay');
+  const phaseLabel = document.getElementById('phaseLabel');
+  const subLabel = document.getElementById('subLabel');
+  const startBtn = document.getElementById('startBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const pieSlice = document.getElementById('pieSlice');
+  const dotsEl = document.getElementById('dots');
+  const btnPomodoro = document.getElementById('btnPomodoro');
+  const btnFlow = document.getElementById('btnFlow');
+  const flowConfig = document.getElementById('flowConfig');
+  const ratioSelect = document.getElementById('ratioSelect');
+  const soundToggle = document.getElementById('soundToggle');
+  const autoToggle = document.getElementById('autoToggle');
+  const fsToggle = document.getElementById('fsToggle');
+
+  fsToggle.addEventListener('click', ()=>{
+    if(!document.fullscreenElement){
+      document.documentElement.requestFullscreen().catch(()=>{});
+    } else {
+      document.exitFullscreen();
+    }
+  });
+  document.addEventListener('fullscreenchange', ()=>{
+    fsToggle.textContent = document.fullscreenElement ? '⤢ exit fullscreen' : '⛶ fullscreen';
+  });
+
+  document.getElementById('themePicker').addEventListener('click', (e)=>{
+    const btn = e.target.closest('.theme-btn');
+    if(!btn) return;
+    document.querySelectorAll('.theme-btn').forEach(b=>b.classList.toggle('active', b===btn));
+    if(btn.dataset.theme === 'black'){
+      document.body.setAttribute('data-theme','black');
+      bgAnim.stop();
+    } else {
+      document.body.removeAttribute('data-theme');
+      bgAnim.start();
+    }
+  });
+
+  function updateZen(){
+    const zen = (phase==='work' && running);
+    document.body.classList.toggle('zen', zen);
+    if(zen) startBtn.textContent = 'Stop';
+  }
+
+  autoToggle.addEventListener('click', ()=>{
+    autoContinue = !autoContinue;
+    autoToggle.textContent = autoContinue ? '⟳ auto: on' : '⟳ auto: off';
+    autoToggle.classList.toggle('on', autoContinue);
+  });
+
+  // ---- Pixel-particle animated backgrounds (no external images needed) ----
+  const bgAnim = (function(){
+    const canvas = document.getElementById('bgCanvas');
+    const ctx2d = canvas.getContext('2d');
+    let particles = [];
+    let scene = 'rain';
+    let rafId = null;
+    const styles = getComputedStyle(document.documentElement);
+    const cEmber = styles.getPropertyValue('--ember').trim();
+    const cFlow = styles.getPropertyValue('--flow').trim();
+    const cInkDim = styles.getPropertyValue('--ink-dim').trim();
+
+    function resize(){
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      spawn();
+    }
+    function rand(a,b){ return a + Math.random()*(b-a); }
+
+    function spawn(){
+      const w = canvas.width, h = canvas.height;
+      particles = [];
+      if(scene==='rain'){
+        for(let i=0;i<70;i++) particles.push({x:rand(0,w), y:rand(-h,h), len:rand(8,18), speed:rand(6,11), sway:0});
+      } else if(scene==='snow'){
+        for(let i=0;i<60;i++) particles.push({x:rand(0,w), y:rand(0,h), size:rand(2,5), speed:rand(0.6,1.6), sway:rand(0.3,1.2), phase:rand(0,Math.PI*2)});
+      } else if(scene==='stars'){
+        for(let i=0;i<80;i++) particles.push({x:rand(0,w), y:rand(0,h), size:rand(1,3), phase:rand(0,Math.PI*2), speed:rand(0.5,1.5)});
+      } else if(scene==='embers'){
+        for(let i=0;i<45;i++) particles.push({x:rand(0,w), y:rand(0,h), size:rand(2,4), speed:rand(0.4,1.1), sway:rand(0.4,1), phase:rand(0,Math.PI*2)});
+      }
+    }
+
+    function draw(){
+      const w = canvas.width, h = canvas.height;
+      ctx2d.clearRect(0,0,w,h);
+      ctx2d.imageSmoothingEnabled = false;
+      if(scene==='rain'){
+        ctx2d.strokeStyle = cInkDim; ctx2d.globalAlpha = 0.35; ctx2d.lineWidth = 2;
+        particles.forEach(p=>{
+          ctx2d.beginPath();
+          ctx2d.moveTo(p.x, p.y);
+          ctx2d.lineTo(p.x-2, p.y+p.len);
+          ctx2d.stroke();
+          p.y += p.speed;
+          if(p.y > h) { p.y = -20; p.x = rand(0,w); }
+        });
+      } else if(scene==='snow'){
+        ctx2d.fillStyle = '#f2ecd8'; ctx2d.globalAlpha = 0.55;
+        particles.forEach(p=>{
+          ctx2d.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
+          p.y += p.speed; p.phase += 0.02;
+          p.x += Math.sin(p.phase)*p.sway*0.3;
+          if(p.y > h){ p.y = -6; p.x = rand(0,w); }
+        });
+      } else if(scene==='stars'){
+        ctx2d.fillStyle = cInkDim;
+        particles.forEach(p=>{
+          p.phase += 0.02*p.speed;
+          ctx2d.globalAlpha = 0.25 + Math.abs(Math.sin(p.phase))*0.5;
+          ctx2d.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
+        });
+      } else if(scene==='embers'){
+        ctx2d.fillStyle = cEmber;
+        particles.forEach(p=>{
+          p.phase += 0.03;
+          ctx2d.globalAlpha = 0.3 + Math.abs(Math.sin(p.phase))*0.4;
+          ctx2d.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size);
+          p.y -= p.speed; p.x += Math.sin(p.phase)*p.sway*0.4;
+          if(p.y < -6){ p.y = h+6; p.x = rand(0,w); }
+        });
+      }
+      ctx2d.globalAlpha = 1;
+      rafId = requestAnimationFrame(draw);
+    }
+
+    document.getElementById('scenePicker').addEventListener('click', (e)=>{
+      const btn = e.target.closest('.scene-btn');
+      if(!btn) return;
+      scene = btn.dataset.scene;
+      document.querySelectorAll('.scene-btn').forEach(b=>b.classList.toggle('active', b===btn));
+      spawn();
+    });
+
+    window.addEventListener('resize', ()=>{ resize(); });
+    resize();
+    rafId = requestAnimationFrame(draw);
+
+    return {
+      stop(){
+        if(rafId){ cancelAnimationFrame(rafId); rafId = null; }
+        ctx2d.clearRect(0,0,canvas.width,canvas.height);
+      },
+      start(){
+        if(!rafId){ resize(); rafId = requestAnimationFrame(draw); }
+      }
+    };
+  })();
+
+  // ---- Sound: calm layered chime, synthesized (no external audio) ----
+  let actx = null;
+  function ensureAudio(){ if(!actx){ actx = new (window.AudioContext||window.webkitAudioContext)(); } return actx; }
+  function playChime(){
+    if(!soundOn) return;
+    const ctx = ensureAudio();
+    const now = ctx.currentTime;
+    const notes = [523.25, 659.25, 784.0]; // C5 E5 G5, warm bell-like triad
+    notes.forEach((freq, i)=>{
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const start = now + i*0.12;
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(0.16, start+0.05);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start+2.6);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start+2.7);
+    });
+  }
+  function playClick(){
+    if(!soundOn) return;
+    const ctx = ensureAudio();
+    const dur = 0.025;
+    const bufferSize = Math.floor(ctx.sampleRate * dur);
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for(let i=0;i<bufferSize;i++){
+      data[i] = (Math.random()*2-1) * Math.pow(1 - i/bufferSize, 2);
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 2800;
+    filter.Q.value = 0.9;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.5, ctx.currentTime);
+    noise.connect(filter).connect(gain).connect(ctx.destination);
+    noise.start();
+  }
+  document.addEventListener('click', (e)=>{
+    if(e.target.closest('button')) playClick();
+  });
+
+  soundToggle.addEventListener('click', ()=>{
+    soundOn = !soundOn;
+    soundToggle.textContent = soundOn ? '♪ sound: on' : '♪ sound: off';
+    soundToggle.classList.toggle('on', soundOn);
+    if(soundOn) ensureAudio();
+  });
+
+  function fmt(s){
+    s = Math.max(0, Math.round(s));
+    const m = Math.floor(s/60);
+    const r = s%60;
+    return String(m).padStart(2,'0') + ':' + String(r).padStart(2,'0');
+  }
+
+  function setPie(fraction, colorVar){
+    const deg = Math.min(360, Math.max(0, fraction*360));
+    pieSlice.style.background = `conic-gradient(var(${colorVar}) 0deg ${deg}deg, var(--track) ${deg}deg 360deg)`;
+  }
+
+  function paintModeUI(){
+    const flowMode = mode === 'flow';
+    btnPomodoro.classList.toggle('active', !flowMode);
+    btnFlow.classList.toggle('active', flowMode);
+    btnFlow.classList.toggle('flow-active', flowMode);
+    startBtn.classList.toggle('flow-active', flowMode);
+    flowConfig.classList.toggle('hidden', !flowMode);
+    renderDots();
+  }
+
+  function renderDots(){
+    dotsEl.innerHTML = '';
+    if(mode === 'pomodoro'){
+      for(let i=0;i<SESSIONS_BEFORE_LONG;i++){
+        const d = document.createElement('div');
+        d.className = 'dot' + (i < (sessionCount % SESSIONS_BEFORE_LONG) ? ' filled' : '');
+        dotsEl.appendChild(d);
+      }
+    } else {
+      const count = Math.max(1, Math.min(sessionCount,8));
+      for(let i=0;i<count;i++){
+        const d = document.createElement('div');
+        d.className = 'dot' + (i < sessionCount ? ' filled flow-active' : '');
+        dotsEl.appendChild(d);
+      }
+    }
+  }
+
+  function updatePomodoroDisplay(){
+    timeDisplay.textContent = fmt(secondsLeft);
+    const remainFrac = secondsLeft/totalSeconds;
+    setPie(remainFrac, phase==='work' ? '--ember' : '--flow');
+    if(phase==='work'){
+      phaseLabel.textContent = running ? 'focusing' : 'ready';
+      subLabel.textContent = `Session ${(sessionCount % SESSIONS_BEFORE_LONG)+1} of ${SESSIONS_BEFORE_LONG} · 50 min work`;
+    } else {
+      const isLong = sessionCount % SESSIONS_BEFORE_LONG === 0 && sessionCount>0;
+      phaseLabel.textContent = running ? 'resting' : 'break ready';
+      subLabel.textContent = isLong ? 'Long break · 20 min' : 'Short break · 10 min';
+    }
+  }
+
+  function updateFlowDisplay(){
+    if(phase==='work'){
+      timeDisplay.textContent = fmt(flowElapsed);
+      phaseLabel.textContent = running ? 'in flow' : 'ready';
+      subLabel.textContent = running ? 'Stop when your focus breaks' : `Break ratio 1:${flowRatio}`;
+      const ref = 50*60;
+      setPie((flowElapsed % ref)/ref, '--ember');
+    } else {
+      timeDisplay.textContent = fmt(flowBreakLeft);
+      phaseLabel.textContent = running ? 'resting' : 'break ready';
+      subLabel.textContent = `Earned from ${fmt(flowElapsed)} of focus`;
+      setPie(flowBreakTotal ? flowBreakLeft/flowBreakTotal : 0, '--flow');
+    }
+  }
+
+  function refresh(){
+    if(mode==='pomodoro') updatePomodoroDisplay(); else updateFlowDisplay();
+    if(mode==='flow' && phase==='work'){
+      startBtn.textContent = running ? 'Stop & rest' : (flowElapsed>0 ? 'Resume' : 'Start');
+    } else {
+      startBtn.textContent = running ? 'Pause' : (secondsLeft===totalSeconds ? 'Start' : 'Resume');
+    }
+    updateZen();
+  }
+
+  function tickPomodoro(){
+    secondsLeft--;
+    if(secondsLeft <= 0){
+      if(phase==='work'){
+        sessionCount++;
+        phase='break';
+        const isLong = sessionCount % SESSIONS_BEFORE_LONG === 0;
+        totalSeconds = (isLong ? LONG_BREAK_MIN : SHORT_BREAK_MIN)*60;
+      } else {
+        phase='work';
+        totalSeconds = WORK_MIN*60;
+      }
+      secondsLeft = totalSeconds;
+      renderDots();
+      playChime();
+      if(!autoContinue){
+        running = false;
+        clearInterval(interval);
+      }
+    }
+    refresh();
+  }
+
+  function tickFlow(){
+    if(phase==='work'){
+      flowElapsed++;
+    } else {
+      flowBreakLeft--;
+      if(flowBreakLeft<=0){
+        phase='work';
+        flowElapsed=0;
+        running=false;
+        clearInterval(interval);
+        playChime();
+      }
+    }
+    refresh();
+  }
+
+  function tick(){
+    if(mode==='pomodoro') tickPomodoro(); else tickFlow();
+  }
+
+  function start(){
+    ensureAudio();
+    if(mode==='flow' && phase==='work' && running){
+      running=false; clearInterval(interval);
+      sessionCount++;
+      flowBreakTotal = Math.max(60, Math.round(flowElapsed/flowRatio));
+      flowBreakLeft = flowBreakTotal;
+      phase='break';
+      renderDots();
+      playChime();
+      running=true;
+      interval = setInterval(tick,1000);
+      refresh();
+      return;
+    }
+    running = true;
+    interval = setInterval(tick,1000);
+    refresh();
+  }
+
+  function pause(){
+    running = false;
+    clearInterval(interval);
+    refresh();
+  }
+
+  startBtn.addEventListener('click', ()=>{
+    if(mode==='flow' && phase==='work'){ start(); return; }
+    if(running) pause(); else start();
+  });
+
+  resetBtn.addEventListener('click', ()=>{
+    running=false; clearInterval(interval);
+    if(mode==='pomodoro'){
+      phase='work'; totalSeconds=WORK_MIN*60; secondsLeft=totalSeconds; sessionCount=0;
+    } else {
+      phase='work'; flowElapsed=0; flowBreakLeft=0; flowBreakTotal=0; sessionCount=0;
+    }
+    renderDots();
+    refresh();
+  });
+
+  btnPomodoro.addEventListener('click', ()=>{
+    if(mode==='pomodoro') return;
+    running=false; clearInterval(interval);
+    mode='pomodoro'; phase='work'; totalSeconds=WORK_MIN*60; secondsLeft=totalSeconds; sessionCount=0;
+    paintModeUI(); refresh();
+  });
+  btnFlow.addEventListener('click', ()=>{
+    if(mode==='flow') return;
+    running=false; clearInterval(interval);
+    mode='flow'; phase='work'; flowElapsed=0; flowBreakLeft=0; flowBreakTotal=0; sessionCount=0;
+    paintModeUI(); refresh();
+  });
+
+  ratioSelect.addEventListener('change', (e)=>{ flowRatio = parseInt(e.target.value,10); refresh(); });
+
+  paintModeUI();
+  refresh();
+})();
+</script>
+</body>
+</html>
