@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en" data-style="pixel" data-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pomodoro</title>
+
+<style>
+/* ================================================================
+   COLOUR SCHEME  (edit the hex values here)
+   4 palettes = 2 styles (pixel, soft) x 2 modes (dark, light)
+
+   --bg      page background
+   --track   empty part of the ring, and the music button's outline
+   --focus   ring while focusing, and the music button when it is on
+   --break   ring and digits while on a break
+   --text    digits while focusing
+   --muted   music button when it is off
+   ================================================================ */
+
+/* ---------- PIXEL / dark ---------- */
+[data-style="pixel"][data-mode="dark"] {
+  --bg:     #071b24;
+  --track:  #5a5766;
+  --focus:  #b0a6d0;
+  --break:  #7fc4a0;
+  --text:   #b0a6d0;
+  --muted:  #6f7e88;
+}
+/* ---------- PIXEL / light ---------- */
+[data-style="pixel"][data-mode="light"] {
+  --bg:     #f0e8d6;
+  --track:  #d3c7ae;
+  --focus:  #5b4b8a;
+  --break:  #3f7d5c;
+  --text:   #4a3d78;
+  --muted:  #8d8269;
+}
+/* ---------- SOFT / dark ---------- */
+[data-style="soft"][data-mode="dark"] {
+  --bg:     #1d2033;
+  --track:  #333857;
+  --focus:  #b7aef0;
+  --break:  #8ad1bf;
+  --text:   #e6e3fa;
+  --muted:  #7b80a3;
+}
+/* ---------- SOFT / light ---------- */
+[data-style="soft"][data-mode="light"] {
+  --bg:     #eef1f7;
+  --track:  #dbe0ee;
+  --focus:  #8f84d6;
+  --break:  #6fb5a3;
+  --text:   #54507a;
+  --muted:  #a2a7c2;
+}
+/* ================= end of colour scheme ================= */
+</style>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Quicksand:wght@400;500;600&display=swap" rel="stylesheet">
+
+<script>
+  /* apply the saved style + mode before first paint (avoids a colour flash) */
+  (function () {
+    var r = document.documentElement;
+    function get(k, list, d) {
+      try { var v = localStorage.getItem(k); return list.indexOf(v) > -1 ? v : d; } catch (e) { return d; }
+    }
+    r.dataset.style = get("pomo-style", ["pixel", "soft"], "pixel");
+    r.dataset.mode  = get("pomo-mode",  ["dark", "light"], "dark");
+  })();
+</script>
+
+<style>
+  /* ---------- per-style look (fonts, ring, shapes) ---------- */
+  [data-style="pixel"] {
+    --font: "Press Start 2P", monospace;
+    --time-size: 0.122;
+    --time-weight: 400;
+    --time-spacing: -0.02em;
+    --ring-w: 8;
+    --ring-cap: butt;
+    --bar-transition: stroke .3s ease;
+    --paused-anim: blink-pixel 1.4s steps(2, jump-none) infinite;
+    --img-render: pixelated;
+    --btn-radius: 0;
+    --btn-border: 3px;
+  }
+  [data-style="soft"] {
+    --font: "Quicksand", "Nunito", system-ui, sans-serif;
+    --time-size: 0.2;
+    --time-weight: 500;
+    --time-spacing: 0.02em;
+    --ring-w: 4;
+    --ring-cap: round;
+    --bar-transition: stroke-dashoffset .35s linear, stroke .3s ease;
+    --paused-anim: blink-soft 2.6s ease-in-out infinite;
+    --img-render: auto;
+    --btn-radius: 50%;
+    --btn-border: 2px;
+  }
+  [data-mode="dark"]  { color-scheme: dark; }
+  [data-mode="light"] { color-scheme: light; }
+
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    align-items: center;
+    justify-items: center;
+    overflow: hidden;
+    transition: background-color .35s ease;
+    --d: min(38vw, 72vh); /* ring diameter */
+  }
+
+  /* ---------- picture (click = light / dark) ---------- */
+  #pic {
+    all: unset;
+    cursor: pointer;
+    display: block;
+    line-height: 0;
+  }
+  #pic:focus-visible, #clock:focus-visible, #music:focus-visible {
+    outline: 3px dashed var(--focus);
+    outline-offset: 6px;
+  }
+  #pic img {
+    display: block;
+    max-width: 40vw;
+    max-height: 82vh;
+    width: auto;
+    height: auto;
+    image-rendering: var(--img-render);
+  }
+  #pic:active img { transform: translateY(2px); }
+
+  /* ---------- timer (click = start / pause) ---------- */
+  #clock {
+    all: unset;
+    cursor: pointer;
+    position: relative;
+    width: var(--d);
+    height: var(--d);
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* children never catch clicks, so only the round shape counts as "the circle" */
+  #clock > * { pointer-events: none; }
+
+  #clock svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    transform: rotate(-90deg);
+  }
+  #clock circle { fill: none; stroke-width: var(--ring-w); }
+  #track { stroke: var(--track); transition: stroke .3s ease; }
+  #bar {
+    stroke: var(--focus);
+    stroke-linecap: var(--ring-cap);
+    transition: var(--bar-transition);
+  }
+  #clock[data-phase="break"] #bar { stroke: var(--break); }
+
+  #time {
+    font-size: calc(var(--d) * var(--time-size));
+    font-weight: var(--time-weight);
+    letter-spacing: var(--time-spacing);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    color: var(--text);
+    transition: color .3s ease;
+  }
+  #clock[data-phase="break"] #time { color: var(--break); }
+
+  /* digits pulse while paused (not before the very first start) */
+  #clock[data-running="false"][data-fresh="false"] #time { animation: var(--paused-anim); }
+  @keyframes blink-pixel { 50% { opacity: .55; } }
+  @keyframes blink-soft  { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+
+  /* ---------- music button (top-right corner) ---------- */
+  #music {
+    all: unset;
+    cursor: pointer;
+    position: fixed;
+    top: 18px;
+    right: 18px;
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    color: var(--muted);
+    border: var(--btn-border) solid var(--track);
+    border-radius: var(--btn-radius);
+    transition: color .2s, border-color .2s;
+  }
+  #music[aria-pressed="true"] { color: var(--focus); border-color: var(--focus); }
+  #music svg { width: 22px; height: 22px; }
+  #music .ico-pixel { shape-rendering: crispEdges; }
+  #music .ico-soft  { display: none; }
+  [data-style="soft"] #music .ico-pixel { display: none; }
+  [data-style="soft"] #music .ico-soft  { display: block; }
+  #music .off-slash { display: none; }
+  #music[aria-pressed="false"] .off-slash { display: block; }
+
+  /* ---------- portrait / small screens ---------- */
+  @media (max-aspect-ratio: 1/1) {
+    body {
+      grid-template-columns: 1fr;
+      grid-template-rows: 1fr 1fr;
+      --d: min(78vw, 38vh);
+    }
+    #pic img { max-width: 70vw; max-height: 36vh; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #clock #time { animation: none !important; }
+    body, #bar, #time { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<button id="pic" type="button" aria-label="Switch light and dark mode">
+  <img id="picimg" alt="Illustration">
+</button>
+
+<button id="clock" type="button" data-phase="focus" data-running="false" data-fresh="true"
+        aria-label="Timer. Click to start or pause.">
+  <svg viewBox="0 0 100 100" aria-hidden="true">
+    <circle id="track" cx="50" cy="50" r="46"/>
+    <circle id="bar" cx="50" cy="50" r="46"/>
+  </svg>
+  <span id="time">50:00</span>
+</button>
+
+<button id="music" type="button" aria-pressed="false" aria-label="Music on or off">
+  <!-- pixel icon -->
+  <svg class="ico-pixel" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+    <rect x="6" y="2" width="8" height="2"/>
+    <rect x="6" y="4" width="2" height="8"/>
+    <rect x="12" y="4" width="2" height="6"/>
+    <rect x="3" y="10" width="4" height="4"/>
+    <rect x="9" y="8" width="4" height="4"/>
+    <g class="off-slash">
+      <rect x="1" y="1" width="2" height="2"/><rect x="3" y="3" width="2" height="2"/>
+      <rect x="5" y="5" width="2" height="2"/><rect x="7" y="7" width="2" height="2"/>
+      <rect x="9" y="9" width="2" height="2"/><rect x="11" y="11" width="2" height="2"/>
+      <rect x="13" y="13" width="2" height="2"/>
+    </g>
+  </svg>
+  <!-- soft icon -->
+  <svg class="ico-soft" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M9 17V6l10-2v11"/>
+    <circle cx="6.5" cy="17.5" r="2.5" fill="currentColor"/>
+    <circle cx="16.5" cy="15.5" r="2.5" fill="currentColor"/>
+    <line class="off-slash" x1="3" y1="3" x2="21" y2="21"/>
+  </svg>
+</button>
+
+<script>
+(() => {
+  /* ======== change these to taste ======== */
+  const FOCUS_MIN = 50;
+  const BREAK_MIN = 10;
+  const MUSIC_VOLUME = 0.35;
+  const IMAGES = { pixel: "img1.png", soft: "img2.png" };
+  /* ======================================= */
+
+  const $ = (id) => document.getElementById(id);
+  const root = document.documentElement;
+  const clock = $("clock"), timeEl = $("time"), bar = $("bar");
+  const pic = $("pic"), picImg = $("picimg"), musicBtn = $("music");
+
+  const CIRC = 2 * Math.PI * 46;
+  bar.style.strokeDasharray = CIRC;
+
+  const store = {
+    get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} }
+  };
+
+  /* ---------- style (click empty space) and mode (click picture) ---------- */
+  const STYLES = Object.keys(IMAGES);   // ["pixel", "soft"]
+  const MODES = ["dark", "light"];
+  const pick = (k, list, d) => { const v = store.get(k, d); return list.includes(v) ? v : d; };
+
+  function setStyle(s) {
+    root.dataset.style = s;
+    picImg.src = IMAGES[s];
+    store.set("pomo-style", s);
+  }
+  function setMode(m) {
+    root.dataset.mode = m;
+    store.set("pomo-mode", m);
+  }
+  setStyle(pick("pomo-style", STYLES, "pixel"));
+  setMode(pick("pomo-mode", MODES, "dark"));
+
+  const cycleStyle = () => setStyle(STYLES[(STYLES.indexOf(root.dataset.style) + 1) % STYLES.length]);
+  const toggleMode = () => setMode(root.dataset.mode === "dark" ? "light" : "dark");
+
+  pic.addEventListener("click", toggleMode);
+
+  // click anywhere that is not the circle, the picture or the music button
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("#clock, #pic, #music")) return;
+    cycleStyle();
+  });
+
+  /* ---------- timer state ---------- */
+  const secs = (p) => (p === "focus" ? FOCUS_MIN : BREAK_MIN) * 60;
+  let phase = "focus";
+  let remaining = secs(phase);   // seconds left while paused
+  let endAt = 0;                 // timestamp while running
+  let running = false;
+  let fresh = true;              // true until the first start (or after reset)
+  let tick = null;
+
+  /* ---------- sound effects (synthesised, no files needed) ---------- */
+  let ctx = null;
+  const audio = () => {
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) ctx = new AC();
+    }
+    if (ctx && ctx.state === "suspended") ctx.resume();
+    return ctx;
+  };
+
+  function click(at, freq = 1900) {
+    const c = audio(); if (!c) return;
+    const t = c.currentTime + at;
+    const o = c.createOscillator(), g = c.createGain();
+    o.type = "square";
+    o.frequency.setValueAtTime(freq, t);
+    o.frequency.exponentialRampToValueAtTime(freq * 0.5, t + 0.04);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.22, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    o.connect(g).connect(c.destination);
+    o.start(t); o.stop(t + 0.06);
+  }
+  const focusEndSound = () => { click(0); click(0.16); click(0.32, 1500); };
+
+  function softBuzz() {
+    const c = audio(); if (!c) return;
+    const t = c.currentTime;
+    const lp = c.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = 520;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.16, t + 0.12);
+    g.gain.setValueAtTime(0.16, t + 0.7);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+    const lfo = c.createOscillator(), lfoGain = c.createGain();
+    lfo.frequency.value = 28; lfoGain.gain.value = 0.05;
+    lfo.connect(lfoGain).connect(g.gain);
+    [110, 111.5].forEach((f) => {
+      const o = c.createOscillator();
+      o.type = "sawtooth"; o.frequency.value = f;
+      o.connect(lp); o.start(t); o.stop(t + 1.25);
+    });
+    lp.connect(g).connect(c.destination);
+    lfo.start(t); lfo.stop(t + 1.25);
+  }
+
+  /* ---------- background music: focus.mp3 / break.mp3 / paused.mp3 ---------- */
+  const tracks = {
+    focus:  new Audio("focus.mp3"),
+    break:  new Audio("break.mp3"),
+    paused: new Audio("paused.mp3")
+  };
+  Object.values(tracks).forEach((a) => { a.loop = true; a.volume = MUSIC_VOLUME; a.preload = "auto"; });
+
+  let musicOn = store.get("pomo-music", "on") === "on";
+  const paintMusic = () => musicBtn.setAttribute("aria-pressed", String(musicOn));
+
+  function syncMusic() {
+    let want = null;
+    if (musicOn) {
+      if (running) want = phase;      // focus.mp3 or break.mp3
+      else if (!fresh) want = "paused"; // paused.mp3 after you hit pause
+    }
+    for (const [name, a] of Object.entries(tracks)) {
+      if (name === want) a.play().catch(() => {});
+      else a.pause();
+    }
+  }
+  musicBtn.addEventListener("click", () => {
+    musicOn = !musicOn;
+    store.set("pomo-music", musicOn ? "on" : "off");
+    paintMusic();
+    syncMusic();
+  });
+  paintMusic();
+
+  /* ---------- rendering ---------- */
+  const fmt = (s) => {
+    s = Math.max(0, Math.ceil(s));
+    return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+  };
+
+  function render(left) {
+    const text = fmt(left);
+    const name = phase === "focus" ? "focus" : "break";
+    timeEl.textContent = text;
+    bar.style.strokeDashoffset = CIRC * (1 - left / secs(phase));
+    clock.dataset.phase = phase;
+    clock.dataset.running = String(running);
+    clock.dataset.fresh = String(fresh);
+    clock.setAttribute("aria-label", `${name} ${text}, ${running ? "running" : "paused"}. Click to ${running ? "pause" : "start"}.`);
+    document.title = (running ? "▶ " : "❚❚ ") + text + " · " + name;
+  }
+
+  /* ---------- timer logic ---------- */
+  function loop() {
+    const left = (endAt - Date.now()) / 1000;
+    if (left <= 0) return nextPhase();
+    render(left);
+  }
+
+  function start() {
+    audio(); // unlock sound on this click
+    endAt = Date.now() + remaining * 1000;
+    running = true;
+    fresh = false;
+    clearInterval(tick);
+    tick = setInterval(loop, 200);
+    syncMusic();
+    render(remaining);
+  }
+
+  function pause() {
+    remaining = Math.max(0, (endAt - Date.now()) / 1000);
+    running = false;
+    clearInterval(tick);
+    syncMusic();
+    render(remaining);
+  }
+
+  function nextPhase() {
+    const finished = phase;
+    phase = finished === "focus" ? "break" : "focus";
+    remaining = secs(phase);
+    endAt = Date.now() + remaining * 1000;
+    if (finished === "focus") focusEndSound(); else softBuzz();
+    syncMusic();
+    render(remaining);
+  }
+
+  clock.addEventListener("click", () => (running ? pause() : start()));
+
+  // keyboard extras: R = reset, S = skip phase, T = change style
+  document.addEventListener("keydown", (e) => {
+    const k = e.key.toLowerCase();
+    if (k === "r") {
+      clearInterval(tick); running = false; fresh = true;
+      phase = "focus"; remaining = secs(phase);
+      syncMusic(); render(remaining);
+    } else if (k === "s") {
+      if (running) nextPhase();
+      else { phase = phase === "focus" ? "break" : "focus"; remaining = secs(phase); syncMusic(); render(remaining); }
+    } else if (k === "t") {
+      cycleStyle();
+    }
+  });
+
+  render(remaining);
+})();
+</script>
+</body>
+</html>
